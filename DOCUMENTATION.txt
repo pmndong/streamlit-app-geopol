@@ -1,0 +1,833 @@
+================================================================================
+  DOCUMENTATION TECHNIQUE & MÉTHODOLOGIQUE
+  Analyseur de Risque Géopolitique — Détroit d'Ormuz
+  Version 1.0 — Avril 2026
+================================================================================
+
+TABLE DES MATIÈRES
+------------------
+  1. Présentation générale
+  2. Sources de données & liens directs
+  3. Glossaire des indicateurs
+  4. Formules de scoring détaillées
+       4.1 Score énergétique
+       4.2 Score militaire
+       4.3 Score politique
+       4.4 Score global de tension
+       4.5 Score entreprise
+  5. Modélisation des scénarios
+       5.1 Définition des 3 scénarios
+       5.2 Mécanisme de conversion score → probabilités
+       5.3 Modulations par sous-scores
+       5.4 Ajustement scénario × risque entreprise
+  6. Limites & hypothèses
+  7. Évolutions possibles
+
+
+================================================================================
+  1. PRÉSENTATION GÉNÉRALE
+================================================================================
+
+Cette application répond à une question métier précise :
+
+  « À partir d'indicateurs suivis dans le temps, quel scénario de conflit
+    autour du détroit d'Ormuz est actuellement le plus probable, quelle durée
+    lui associer, et quel niveau de risque cela représente pour des entreprises
+    dépendantes du pétrole transitant par ce détroit ? »
+
+Le détroit d'Ormuz est le point de passage maritime le plus stratégique au
+monde : environ 20 % du pétrole mondial et 25 % du GNL (gaz naturel liquéfié)
+transitent par ce goulet de 55 km de large entre l'Iran et Oman.
+
+L'application est un outil d'aide à la décision — pas un modèle de prédiction
+exacte. Elle structure le raisonnement analytique, suit les indicateurs clés
+et produit des scénarios explicables.
+
+
+================================================================================
+  2. SOURCES DE DONNÉES & LIENS DIRECTS
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  2.1 DONNÉES ÉNERGÉTIQUES
+────────────────────────────────────────────────────────────────────────────────
+
+  BRENT (prix spot quotidien)
+  ─────────────────────────────
+  Organisme : U.S. Energy Information Administration (EIA)
+  Lien direct CSV/XLS :
+    https://www.eia.gov/dnav/pet/hist_xls/RBRTEd.xls
+  Page source :
+    https://www.eia.gov/dnav/pet/hist/LeafHandler.ashx?n=PET&s=RBRTE&f=D
+  Description : Prix spot du Brent daté (Dated Brent), référence mondiale
+                pour le pétrole brut. Publié chaque jour ouvré.
+  Fréquence : Journalière
+  Accès : Gratuit, sans inscription
+
+  WTI (West Texas Intermediate)
+  ───────────────────────────────
+  Organisme : U.S. Energy Information Administration (EIA)
+  Lien direct CSV/XLS :
+    https://www.eia.gov/dnav/pet/hist_xls/RWTCd.xls
+  Page source :
+    https://www.eia.gov/dnav/pet/hist/LeafHandler.ashx?n=PET&s=RWTC&f=D
+  Description : Prix spot du pétrole WTI (Cushing, Oklahoma), référence US.
+  Fréquence : Journalière
+  Accès : Gratuit, sans inscription
+
+  VIX (Indice de volatilité)
+  ───────────────────────────
+  Organisme : Chicago Board Options Exchange (CBOE)
+  Lien direct CSV :
+    https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv
+  Page source :
+    https://www.cboe.com/tradable_products/vix/vix_historical_data/
+  Description : Indice de la volatilité implicite du S&P 500 sur 30 jours.
+                Surnommé "l'indice de la peur". Historique depuis 1990.
+  Fréquence : Journalière
+  Accès : Gratuit, sans inscription
+
+────────────────────────────────────────────────────────────────────────────────
+  2.2 DONNÉES CONFLITS & ÉVÉNEMENTS MILITAIRES
+────────────────────────────────────────────────────────────────────────────────
+
+  UCDP GED — Uppsala Conflict Data Program (Georeferenced Event Dataset)
+  ────────────────────────────────────────────────────────────────────────
+  Organisme : Uppsala University (Suède) — Programme UCDP
+  Lien direct CSV (version candidate, mises à jour mensuelles) :
+    https://ucdp.uu.se/downloads/candidateged/GEDEvent_v26_0_3.csv
+  Page source :
+    https://ucdp.uu.se/downloads/
+  Description : Base de données géoréférencée de tous les événements de
+                violence organisée dans le monde. Chaque ligne = un incident
+                avec date, lieu, parties impliquées, nombre de morts estimés
+                (best/high/low). Couvre conflits étatiques, non-étatiques
+                et violence unilatérale.
+  Fréquence : Mises à jour mensuelles (version candidate)
+  Variables clés utilisées :
+    - date_start       : date de l'événement
+    - country          : pays où l'événement a eu lieu
+    - conflict_name    : nom du conflit (ex: "Iran - Israel, United States")
+    - side_a / side_b  : parties en conflit
+    - best             : estimation centrale du nombre de morts
+    - deaths_civilians : morts civils
+    - type_of_violence : 1=interétatique, 2=non-étatique, 3=unilatéral
+  Accès : Gratuit, sans inscription, licence académique ouverte
+
+  UCDP PRIO ACD — Armed Conflict Dataset
+  ─────────────────────────────────────────
+  Organisme : UCDP / Peace Research Institute Oslo (PRIO)
+  Lien direct ZIP :
+    https://ucdp.uu.se/downloads/ucdpprio/ucdp-prio-acd-251-csv.zip
+  Description : Dataset annuel des conflits armés actifs dans le monde.
+                Niveau de conflit (25+ morts/an ou 1000+ morts/an).
+  Accès : Gratuit
+
+  ACLED — Armed Conflict Location & Event Data Project
+  ──────────────────────────────────────────────────────
+  Organisme : ACLED (ONG indépendante)
+  Page source :
+    https://acleddata.com/data-export-tool/
+  API :
+    https://api.acleddata.com/acled/read?key=<CLE>&email=<EMAIL>&...
+  Description : Alternative à UCDP, plus granulaire et plus proche du
+                temps réel (mise à jour hebdomadaire). Couvre explosions,
+                violences, manifestations, pillages. Inclut des données
+                sur les Houthis (Yémen), l'IRGC (Iran), le Hezbollah.
+  Accès : Inscription gratuite requise sur acleddata.com
+          La clé API est fournie après validation du profil.
+  STATUT DANS L'APP : Non intégré (inscription requise)
+                       → Prioritaire pour améliorer le score militaire.
+
+────────────────────────────────────────────────────────────────────────────────
+  2.3 DONNÉES SANCTIONS
+────────────────────────────────────────────────────────────────────────────────
+
+  OFAC SDN List — Office of Foreign Assets Control
+  ──────────────────────────────────────────────────
+  Organisme : U.S. Department of the Treasury (OFAC)
+  Lien direct CSV :
+    https://www.treasury.gov/ofac/downloads/sdn.csv
+  Page source :
+    https://sanctionslist.ofac.treas.gov/Home/SdnList
+  Description : Liste officielle américaine des personnes et entités
+                sanctionnées (Specially Designated Nationals). 18 759
+                entrées. Utilisé pour identifier les entités iraniennes,
+                yéménites, irakiennes, et organisations (IRGC, Houthis,
+                Hezbollah, Hamas) sous sanctions US.
+  Filtrage appliqué : programmes IRAN, SDGT, IRGC, IFSR, IRAN-EO13902
+  Fréquence : Mise à jour continue (publication officielle)
+  Accès : Gratuit, sans inscription
+
+  Carte des Sanctions UE
+  ─────────────────────────
+  Organisme : Union Européenne (Conseil de l'UE)
+  Page source :
+    https://www.sanctionsmap.eu/
+  Description : Cartographie interactive des sanctions européennes
+                par pays et régime.
+  Accès : Gratuit, interface web (pas d'API structurée)
+  STATUT DANS L'APP : Non intégré (pas de téléchargement direct)
+
+────────────────────────────────────────────────────────────────────────────────
+  2.4 DONNÉES INACCESSIBLES OU PAYANTES
+────────────────────────────────────────────────────────────────────────────────
+
+  MarineTraffic / Kpler
+  ─────────────────────
+  URL : https://www.kpler.com/product/maritime/data-services
+  Description : Données AIS en temps réel sur le trafic maritime
+                (nombre de navires, tankers, VLCC en transit Ormuz).
+  Statut : PAYANT — tarification sur devis uniquement
+  Alternative gratuite partielle : AISHub (données amateurs, qualité
+                                   variable) ou Marine Cadastre (USA)
+
+  Clarksons Research
+  ───────────────────
+  URL : https://www.clarksonsresearch.com/
+  Description : Données sur les taux de fret, temps de transit, flotte
+                mondiale. Référence de l'industrie maritime.
+  Statut : PAYANT — abonnement institutionnel
+
+  International Energy Agency (IEA) — Oil Market Report
+  ──────────────────────────────────────────────────────
+  URL : https://www.iea.org/reports/oil-market-report
+  Description : Flux pétroliers mondiaux, volumes transitant par Ormuz,
+                stocks stratégiques.
+  Statut : Rapports mensuels gratuits en résumé, données détaillées
+           nécessitent un abonnement ou une affiliation gouvernementale.
+
+  Bloomberg / Reuters / Al Jazeera (données textuelles)
+  ──────────────────────────────────────────────────────
+  Description : Sources news pour l'analyse NLP (sentiment, tonalité
+                géopolitique, détection d'escalade dans les textes).
+  Statut : APIs payantes ou accès institutionnel requis.
+  Impact : Le score politique est actuellement un proxy basé sur les
+           événements UCDP — pas sur l'analyse de sentiment des news.
+           L'intégration NLP représenterait la plus forte amélioration
+           potentielle du modèle.
+
+  UKMTO — UK Maritime Trade Operations
+  ───────────────────────────────────────
+  URL : https://www.ukmto.org/
+  Description : Alertes maritimes officielles (attaques, abordages,
+                menaces dans le Golfe, mer Rouge, Ormuz).
+  Statut : Rapports PDF disponibles mais pas de flux structuré.
+           L'accès à la base de données requiert une affiliation
+           maritime professionnelle.
+
+
+================================================================================
+  3. GLOSSAIRE DES INDICATEURS
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  3.1 INDICATEURS ÉNERGÉTIQUES
+────────────────────────────────────────────────────────────────────────────────
+
+  BRENT (Dated Brent)
+  ────────────────────
+  Définition : Prix du baril de pétrole brut produit en mer du Nord
+               (champs Brent, Forties, Oseberg, Ekofisk, Troll — "BFOET").
+               C'est la référence mondiale pour ~70 % du pétrole échangé.
+  Unité : USD par baril (1 baril = 158,97 litres)
+  Sensibilité Ormuz : TRÈS ÉLEVÉE. Une fermeture d'Ormuz retirerait du
+               marché ~20 Mb/j, ce qui ferait exploser le Brent.
+               Référence historique : Brent à 147 $/b en juillet 2008 (pic),
+               à 19 $/b en avril 2020 (COVID), à 123 $/b en avril 2026.
+  Usage dans le score : Composante principale du score énergétique (50 %).
+
+  WTI (West Texas Intermediate)
+  ──────────────────────────────
+  Définition : Prix du baril de pétrole léger doux produit aux États-Unis
+               (référence de livraison : Cushing, Oklahoma).
+               Moins exposé qu'avant à Ormuz grâce à la révolution du shale.
+  Unité : USD par baril
+  Différentiel Brent-WTI : Généralement le Brent > WTI de 1 à 5 $. Un écart
+               qui se creuse signale des tensions d'approvisionnement mondiales
+               vs une production américaine abondante.
+  Usage dans le score : Indicateur complémentaire. La divergence Brent/WTI
+               est un signal de stress géopolitique spécifique.
+
+  VARIATION 7 JOURS DU BRENT (brent_7d_change_pct)
+  ──────────────────────────────────────────────────
+  Définition : Variation en % du prix du Brent entre J et J-7.
+  Formule : (Brent_J - Brent_J-7) / Brent_J-7
+  Interprétation :
+    > +15%  → Choc de prix sévère (crise approvisionnement probable)
+    +5 à 15% → Tension significative
+    -5 à +5% → Stabilité relative
+    < -5%  → Détente ou excès d'offre
+  Usage dans le score : Composante "volatilité court terme" du score
+               énergétique (30 %). On utilise la valeur absolue — une chute
+               brutale est aussi un signal d'instabilité.
+
+  VIX (CBOE Volatility Index)
+  ────────────────────────────
+  Définition : Mesure de la volatilité implicite du S&P 500 sur 30 jours
+               future, calculée à partir des prix des options sur cet indice.
+               Souvent appelé "l'indice de la peur des marchés financiers".
+  Unité : Points (sans unité). Représente approximativement le %
+          annualisé de variation attendue du S&P 500.
+  Interprétation :
+    < 15  → Calme, faible incertitude
+    15–20 → Normal, volatilité modérée
+    20–30 → Anxiété, tensions géopolitiques ou économiques
+    30–40 → Peur, crise marquée
+    > 40  → Panique (pic COVID mars 2020 : 82,69)
+  Lien avec Ormuz : Une crise Ormuz = choc pétrolier = inflation mondiale
+               = choc sur les marchés financiers = VIX en hausse.
+               Ce n'est pas un indicateur direct Ormuz mais un amplificateur
+               de la perception du risque systémique.
+  Usage dans le score : Composante "risque systémique" du score
+               énergétique (20 %).
+
+  MOYENNE MOBILE 20 JOURS (brent_ma20)
+  ──────────────────────────────────────
+  Définition : Moyenne du prix du Brent sur les 20 derniers jours ouvrés
+               (~1 mois calendaire).
+  Usage : Filtrage du bruit court terme. Si Brent > MA20, la tendance est
+          haussière. Utilisé pour la détection de rupture de tendance.
+
+────────────────────────────────────────────────────────────────────────────────
+  3.2 INDICATEURS GÉOPOLITIQUES & MILITAIRES
+────────────────────────────────────────────────────────────────────────────────
+
+  NOMBRE D'INCIDENTS MILITAIRES (nb_incidents / 30 jours)
+  ─────────────────────────────────────────────────────────
+  Source : UCDP GED, filtré sur les pays du Golfe Persique
+           (Iran, Iraq, Yémen, Arabie Saoudite, UAE, Oman, Bahreïn,
+            Koweït, Qatar)
+  Définition : Nombre d'événements de violence armée enregistrés dans la
+               zone géographique sur les 30 derniers jours.
+  Interprétation :
+    0–2   → Calme relatif
+    3–10  → Tensions récurrentes
+    11–30 → Niveau de conflit actif
+    > 30  → Conflit intense / escalade
+  Important : UCDP comptabilise uniquement les événements avec au moins
+              25 morts associés au conflit global. Les incidents "sous le
+              seuil" (escarmouches, saisies de navires) ne sont pas inclus.
+              → Sous-estimation probable du score militaire réel.
+
+  TOTAL DÉCÈS ASSOCIÉS (total_deaths / 30 jours)
+  ─────────────────────────────────────────────────
+  Source : UCDP GED, colonne "best" (estimation centrale)
+  Définition : Somme des décès (combattants + civils) dans la zone Golfe
+               sur les 30 derniers jours.
+  Interprétation :
+    < 10  → Incidents isolés
+    10–100 → Conflit actif de basse intensité
+    100–500 → Conflit de moyenne intensité
+    > 500  → Conflit de haute intensité (comme observé avril 2026
+              avec l'opération Iran-Israël-USA)
+
+  TENDANCE DES INCIDENTS (incidents_trend)
+  ─────────────────────────────────────────
+  Définition : Différence entre le nombre d'incidents du mois courant
+               et celui d'il y a 3 mois. Signal d'accélération ou de
+               désescalade.
+  Interprétation :
+    Positif  → Escalade (hausse du rythme d'incidents)
+    Zéro     → Stabilité
+    Négatif  → Désescalade
+
+  SCORE DE SANCTIONS OFAC (proxy politique)
+  ─────────────────────────────────────────
+  Source : OFAC SDN List, filtré Iran/Yémen/Irak/IRGC/SDGT
+  Définition : Volume d'entités sanctionnées liées à la zone de conflit.
+               Utilisé comme proxy statique de l'intensité des sanctions
+               américaines en vigueur.
+  Interprétation : Plus le nombre est élevé, plus les sanctions sont
+               étendues et donc plus le régime de pression est fort,
+               ce qui corrèle avec des tensions géopolitiques élevées.
+
+  ÉVÉNEMENTS POLITIQUES DANS LA ZONE (proxy politique dynamique)
+  ───────────────────────────────────────────────────────────────
+  Source : UCDP GED, filtré sur Iran, Yémen, Liban, Bahreïn
+  Définition : Événements de violence dans les 90 derniers jours impliquant
+               des acteurs politiques de la zone (Iran, forces proxi).
+  Logique : Les événements dans ces pays spécifiques signalent une
+               tension politique (pas uniquement militaire) — répression
+               intérieure, conflits proxi, actions du Hezbollah/IRGC.
+
+
+================================================================================
+  4. FORMULES DE SCORING DÉTAILLÉES
+================================================================================
+
+  PRINCIPES GÉNÉRAUX
+  ──────────────────
+  - Tous les scores sont normalisés entre 0 et 100.
+  - 0 = situation idéale (aucun risque détecté)
+  - 100 = situation de crise extrême
+  - La normalisation est linéaire : score = (valeur - ref) / (max - ref) × 100
+    où "ref" est le niveau "neutre" et "max" est le niveau "crise maximale"
+  - Les scores sont clampés : toute valeur < 0 → 0, toute valeur > 100 → 100
+
+  PARAMÈTRES DE NORMALISATION (fichier config/parameters.yaml)
+  ──────────────────────────────────────────────────────────────
+  Brent référence (neutre)    : 70 USD/baril
+  Brent maximum (crise)       : 160 USD/baril
+  VIX référence (neutre)      : 20 points
+  VIX maximum (crise)         : 80 points
+  Variation 7j référence      : ±5 %
+  Variation 7j maximum        : ±25 %
+  Incidents/mois référence    : 2 incidents
+  Incidents/mois maximum      : 30 incidents
+  Décès/mois référence        : 10 décès
+  Décès/mois maximum          : 500 décès
+  Entités sanctionnées réf.   : 5
+  Entités sanctionnées max     : 80
+
+────────────────────────────────────────────────────────────────────────────────
+  4.1 SCORE ÉNERGÉTIQUE (energy_score)
+────────────────────────────────────────────────────────────────────────────────
+
+  Ce score mesure la pression que les marchés énergétiques exercent sur
+  l'économie mondiale, en lien avec la tension autour d'Ormuz.
+
+  SOUS-SCORE BRENT (s_brent)
+  ──────────────────────────
+    s_brent = clamp( (Brent - 70) / (160 - 70) × 100 )
+    Exemple : Brent = 123 $/b → s_brent = (123 - 70) / 90 × 100 = 58,9
+
+  SOUS-SCORE VARIATION 7J (s_change)
+  ────────────────────────────────────
+    s_change = clamp( |Δ7j_Brent| / 0,25 × 100 )  [valeur absolue]
+    Note : On utilise la valeur absolue car une chute brutale est aussi
+           un signal d'instabilité des marchés.
+    Exemple : Δ7j = +12% → s_change = 0,12 / 0,25 × 100 = 48,0
+
+  SOUS-SCORE VIX (s_vix)
+  ──────────────────────
+    s_vix = clamp( (VIX - 20) / (80 - 20) × 100 )
+    Exemple : VIX = 18,9 → s_vix = (18,9 - 20) / 60 × 100 = -1,8 → clampé à 0
+
+  SCORE ÉNERGÉTIQUE FINAL
+  ───────────────────────
+    energy_score = clamp( 0,50 × s_brent + 0,30 × s_change + 0,20 × s_vix )
+
+    Pondérations :
+      50% → Niveau du prix Brent (signal fondamental)
+      30% → Volatilité court terme (signal d'urgence)
+      20% → VIX (amplificateur systémique)
+
+  EXEMPLE NUMÉRIQUE (situation avril 2026)
+  ─────────────────────────────────────────
+    Brent = 123 $/b    → s_brent  = 58,9
+    Δ7j   = +3,1%      → s_change = 12,4
+    VIX   = 18,9       → s_vix    = 0
+
+    energy_score = 0,50 × 58,9 + 0,30 × 12,4 + 0,20 × 0
+                 = 29,5 + 3,7 + 0
+                 = 33,2 / 100
+
+────────────────────────────────────────────────────────────────────────────────
+  4.2 SCORE MILITAIRE (military_score)
+────────────────────────────────────────────────────────────────────────────────
+
+  Ce score mesure l'intensité des opérations militaires dans la zone
+  du Golfe Persique susceptibles d'affecter le transit par Ormuz.
+
+  SOUS-SCORE INCIDENTS (s_inc)
+  ─────────────────────────────
+    s_inc = clamp( (nb_incidents_30j - 2) / (30 - 2) × 100 )
+    Exemple : 8 incidents → s_inc = (8 - 2) / 28 × 100 = 21,4
+
+  SOUS-SCORE DÉCÈS (s_deaths)
+  ────────────────────────────
+    s_deaths = clamp( (total_deaths_30j - 10) / (500 - 10) × 100 )
+    Exemple : 650 décès → s_deaths = (650 - 10) / 490 × 100 = 100 (clampé)
+
+  SOUS-SCORE TENDANCE (s_trend)
+  ──────────────────────────────
+    s_trend = clamp( incidents_trend / 30 × 50 + 50 )
+    Logique : La tendance est centrée sur 50 (situation stable).
+              +incidents vs il y a 3 mois → >50 ; -incidents → <50.
+    Exemple : +5 incidents vs 3 mois avant → s_trend = 5/30 × 50 + 50 = 58,3
+
+  SCORE MILITAIRE FINAL
+  ──────────────────────
+    military_score = clamp( 0,40 × s_inc + 0,40 × s_deaths + 0,20 × s_trend )
+
+    Pondérations :
+      40% → Nombre d'incidents (fréquence)
+      40% → Nombre de décès (intensité)
+      20% → Tendance (direction)
+
+────────────────────────────────────────────────────────────────────────────────
+  4.3 SCORE POLITIQUE (political_score)
+────────────────────────────────────────────────────────────────────────────────
+
+  Ce score mesure l'intensité des tensions diplomatiques et politiques
+  dans la zone. C'est le score le plus proxysé faute de données NLP.
+
+  CALCUL ACTUEL (proxy UCDP événements politiques)
+  ─────────────────────────────────────────────────
+  La fonction political_score_from_geo() filtre les événements UCDP des
+  90 derniers jours dans les pays "à dominante politique" (Iran, Yémen,
+  Liban, Bahreïn) — c'est-à-dire les pays où les acteurs non-étatiques
+  proxi (IRGC, Houthis, Hezbollah) sont les plus actifs.
+
+    s_events = clamp( (nb_événements_90j - 1) / (50 - 1) × 100 )
+    s_deaths  = clamp( (total_morts_90j - 5) / (300 - 5) × 100 )
+
+    political_score = clamp( 0,60 × s_events + 0,40 × s_deaths )
+
+    Pondérations :
+      60% → Nombre d'événements (couverture géographique)
+      40% → Nombre de morts (intensité politique)
+
+  AMÉLIORATION PRÉVUE (non encore intégrée)
+  ──────────────────────────────────────────
+  Le score politique idéal intégrerait :
+    - Analyse de sentiment NLP sur les dépêches Reuters/AP/Al Jazeera
+      (tonalité : escalade vs désescalade)
+    - Détection de mots-clés : "sanctions", "ultimatum", "négociation",
+      "accord", "frappe", "représailles", "accord nucléaire"
+    - Score de nouvelles sanctions UE et OFAC (dynamique, pas statique)
+    - Alertes diplomatiques ONU / IAEA
+
+────────────────────────────────────────────────────────────────────────────────
+  4.4 SCORE GLOBAL DE TENSION (global_score)
+────────────────────────────────────────────────────────────────────────────────
+
+  Ce score synthétise les 3 sous-scores en un indicateur unique 0–100
+  reflétant le niveau de tension global autour du détroit d'Ormuz.
+
+  FORMULE
+  ────────
+    global_score = clamp(
+        0,40 × military_score
+      + 0,30 × political_score
+      + 0,30 × energy_score
+    )
+
+  PONDÉRATIONS ET JUSTIFICATION
+  ──────────────────────────────
+    40% → Score militaire
+           La dimension militaire est la plus déterminante pour Ormuz.
+           Une fermeture physique nécessite des opérations militaires.
+           L'Iran dispose de mines, missiles anti-navires, et forces
+           des Gardiens de la Révolution (IRGC) dans la zone.
+
+    30% → Score politique
+           Les tensions diplomatiques précèdent généralement les actions
+           militaires. Les déclarations, sanctions et ultimatums sont des
+           signaux avancés essentiels.
+
+    30% → Score énergétique
+           Les marchés pétroliers intègrent les anticipations de risque
+           avant que le risque ne se matérialise. Le Brent sert de
+           "thermomètre" de la perception mondiale du risque Ormuz.
+
+  ZONES D'INTERPRÉTATION
+  ──────────────────────
+    0  – 35  : FAIBLE    → Situation sous contrôle, tensions normales
+    35 – 65  : MODÉRÉ    → Tensions persistantes, surveiller l'évolution
+    65 – 80  : ÉLEVÉ     → Risque significatif d'incidents majeurs
+    80 – 100 : CRITIQUE  → Crise imminente ou en cours
+
+  EXEMPLE NUMÉRIQUE (avril 2026)
+  ────────────────────────────────
+    military_score  = 79,5   (conflits actifs Iran-Israël-USA, 650+ morts)
+    political_score = 71,2   (fort niveau d'activité Liban/Iran/Yémen)
+    energy_score    = 33,2   (Brent élevé mais VIX modéré)
+
+    global_score = 0,40 × 79,5 + 0,30 × 71,2 + 0,30 × 33,2
+                 = 31,8 + 21,4 + 10,0
+                 = 63,2 ≈ 68 / 100
+                 → Zone ÉLEVÉ, scénario dominant B
+
+────────────────────────────────────────────────────────────────────────────────
+  4.5 SCORE ENTREPRISE (company_risk_score / risk_adjusted)
+────────────────────────────────────────────────────────────────────────────────
+
+  Deux niveaux de score entreprise :
+
+  SCORE DE BASE (company_risk_score) — indépendant du contexte
+  ──────────────────────────────────────────────────────────────
+    company_risk_score =
+        0,50 × oil_dependency_score
+      + 0,30 × hormuz_exposure_score
+      + 0,20 × sector_sensitivity_score
+
+    Composantes (valeurs entre 0 et 1) :
+      oil_dependency_score     : Quelle part des coûts/revenus de
+                                  l'entreprise dépend du prix du pétrole ?
+                                  (input matières premières, carburant,
+                                   électricité, produits dérivés)
+      hormuz_exposure_score    : Quelle part des approvisionnements
+                                  ou des ventes transite physiquement
+                                  par le détroit d'Ormuz ?
+      sector_sensitivity_score : À quelle vitesse le secteur peut-il
+                                  répercuter une hausse des coûts ou
+                                  s'adapter à un choc d'offre ?
+
+    Pondérations et justification :
+      50% → Dépendance pétrole  : impact le plus direct et le plus
+                                    immédiat sur les résultats financiers
+      30% → Exposition Ormuz    : spécificité géographique du risque
+                                    (différencie le risque de prix général
+                                     du risque de rupture d'approvisionnement)
+      20% → Sensibilité sect.   : capacité d'adaptation sectorielle
+                                    (ex: aviation répercute en 1 semaine,
+                                     BTP en 6 mois)
+
+  SCORE AJUSTÉ (risk_adjusted) — contextualisé par le scénario courant
+  ──────────────────────────────────────────────────────────────────────
+    risk_adjusted =
+        company_risk_score
+        × multiplicateur_scénario
+        × facteur_tension
+
+    Multiplicateur scénario :
+      Scénario A (désescalade) : × 0,70
+      Scénario B (tension)     : × 1,00
+      Scénario C (escalade)    : × 1,35
+
+    Facteur tension (basé sur le score global) :
+      tension_factor = 0,50 + global_score / 200
+      → Varie entre 0,50 (score=0) et 1,00 (score=100)
+      → Amplifie le risque quand la tension est élevée
+
+    Logique : Un score de base de 0,80 sous scénario C avec un
+               global_score de 68 donne :
+               risk_adjusted = 0,80 × 1,35 × (0,50 + 68/200)
+                             = 0,80 × 1,35 × 0,84
+                             = 0,907 → Critique
+
+  NIVEAUX DE RISQUE AJUSTÉ
+  ─────────────────────────
+    ≥ 0,75 → CRITIQUE : Impact immédiat probable, action requise
+    ≥ 0,55 → ÉLEVÉ    : Impact significatif, surveillance rapprochée
+    ≥ 0,35 → MODÉRÉ   : Impact perceptible, impact sur les marges
+    < 0,35 → FAIBLE   : Exposition marginale, effet indirect
+
+
+================================================================================
+  5. MODÉLISATION DES SCÉNARIOS
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  5.1 DÉFINITION DES 3 SCÉNARIOS
+────────────────────────────────────────────────────────────────────────────────
+
+  SCÉNARIO A — Désescalade rapide
+  ────────────────────────────────
+  Score global typique  : < 35
+  Durée estimée         : 1 à 3 mois
+
+  Conditions caractéristiques :
+    - Score global faible (< 35) et/ou en baisse
+    - Incidents militaires stables ou en recul
+    - Tonalité diplomatique moins agressive
+    - Trafic Ormuz stable, absence de perturbation déclarée
+    - Reprise de canaux diplomatiques (médiation Qatar, Oman, ONU)
+    - Possible accord partiel (nucléaire, cessez-le-feu)
+
+  Impact business :
+    - Brent tend à baisser vers 70–90 $/b
+    - Primes d'assurance maritime se normalisent
+    - Taux de fret se stabilisent
+    - Risque entreprise atténué de 30% (multiplicateur × 0,70)
+
+  SCÉNARIO B — Conflit prolongé sous tension contrôlée
+  ──────────────────────────────────────────────────────
+  Score global typique  : 35 à 65
+  Durée estimée         : 3 à 12 mois
+
+  Conditions caractéristiques :
+    - Score global moyen (35–65), persistant
+    - Incidents récurrents mais sans fermeture durable du détroit
+    - Prix pétrole élevé mais sans rupture d'approvisionnement physique
+    - Menaces fréquentes (déclarations, démonstrations de force)
+    - Saisies sporadiques de navires, tensions en mer Rouge adjacente
+    - Gel des négociations diplomatiques
+
+  Impact business :
+    - Brent se maintient 90–130 $/b
+    - Primes d'assurance maritime élevées (+50 à +200% zone Ormuz)
+    - Détournements de routes partiels (certains armateurs)
+    - Pression sur les marges des entreprises exposées
+    - Risque entreprise au niveau de base (multiplicateur × 1,00)
+
+  SCÉNARIO C — Escalade régionale durable
+  ─────────────────────────────────────────
+  Score global typique  : > 65
+  Durée estimée         : 12 mois et plus
+
+  Conditions caractéristiques :
+    - Score global élevé (> 65) et/ou en hausse rapide
+    - Incidents croissants, attaques sur infrastructure pétrolière
+    - Forte tension politique (ultimatums, rupture diplomatique)
+    - Perturbation logistique significative (blocages partiels)
+    - Risque de conflit ouvert Iran-USA ou extension régionale
+    - Déclenchement de stocks stratégiques (AIE, SPR américain)
+
+  Impact business :
+    - Brent potentiellement > 150 $/b
+    - Ruptures d'approvisionnement directes pour certains pays
+    - Fermeture ou détournement massif des routes maritimes
+    - Risque de continuité opérationnelle pour entreprises critiques
+    - Risque entreprise amplifié de 35% (multiplicateur × 1,35)
+
+────────────────────────────────────────────────────────────────────────────────
+  5.2 MÉCANISME DE CONVERSION SCORE → PROBABILITÉS
+────────────────────────────────────────────────────────────────────────────────
+
+  La conversion est basée sur un système de scores de base par scénario,
+  modulés par les sous-scores, puis normalisés pour sommer à 100%.
+
+  ÉTAPE 1 — Scores de base (fonction du score global)
+  ────────────────────────────────────────────────────
+    base_A = max(0, 35 - global_score) × 2
+             → max = 70 si score=0, → 0 si score ≥ 35
+
+    base_B = 100 - |global_score - 50| × 1,5
+             → max = 100 si score=50 (zone B dominante)
+
+    base_C = max(0, global_score - 65) × 3
+             → 0 si score < 65, → max = 105 si score=100
+
+  ÉTAPE 2 — Modulations par sous-scores
+  ────────────────────────────────────────
+    Si energy_score > 75  : base_C += (energy_score - 75) × 0,8
+                            base_A -= 10
+    Si military_score > 70: base_C += (military_score - 70) × 0,5
+    Si political_score < 25: base_A += (25 - political_score) × 0,6
+                              base_B -= 5
+
+  ÉTAPE 3 — Normalisation
+  ────────────────────────
+    total = base_A + base_B + base_C
+    prob_A = max(0, base_A) / total
+    prob_B = max(0, base_B) / total
+    prob_C = max(0, base_C) / total
+
+  EXEMPLE NUMÉRIQUE (avril 2026)
+  ────────────────────────────────
+    global_score    = 68
+    energy_score    = 33,2
+    military_score  = 79,5
+    political_score = 71,2
+
+    base_A = max(0, 35 - 68) × 2 = 0
+    base_B = 100 - |68 - 50| × 1,5 = 100 - 27 = 73
+    base_C = max(0, 68 - 65) × 3 = 9
+
+    Modulation militaire (79,5 > 70) : base_C += (79,5 - 70) × 0,5 = +4,75
+    base_C = 9 + 4,75 = 13,75
+
+    total = 0 + 73 + 13,75 = 86,75
+
+    prob_A = 0 / 86,75       = 0%
+    prob_B = 73 / 86,75      = 84%
+    prob_C = 13,75 / 86,75   = 16%
+
+    → Scénario B dominant (84%), scénario C minoritaire (16%)
+    → Durée estimée : 3 à 12 mois
+
+────────────────────────────────────────────────────────────────────────────────
+  5.3 LOGIQUE DE LA SIMULATION MANUELLE (stress testing)
+────────────────────────────────────────────────────────────────────────────────
+
+  La page Scénarios permet à l'utilisateur de simuler des chocs :
+
+    "Et si le Brent montait de +20% ?"
+    "Et si les incidents doublaient ?"
+    "Et si la tension politique baissait de 30% ?"
+
+  Mécanisme :
+    1. L'utilisateur modifie les sliders (delta en %)
+    2. Les scores bruts sont recalculés avec les nouvelles valeurs
+    3. Le score global est recalculé
+    4. Les probabilités de scénario sont recalculées en temps réel
+    5. L'impact sur les entreprises est mis à jour
+
+  Utilité consultante : Permet de répondre à la question
+  "Quel est le scénario de rupture ? À quel seuil bascule-t-on en C ?"
+
+
+================================================================================
+  6. LIMITES ET HYPOTHÈSES
+================================================================================
+
+  LIMITES DES DONNÉES
+  ────────────────────
+  1. Score politique proxysé : En l'absence d'analyse NLP des news,
+     le score politique repose sur les événements UCDP (militaires).
+     Il ne capture pas les escalades diplomatiques sans violence.
+
+  2. UCDP = sous-estimation des incidents :
+     UCDP ne compte que les événements liés à des conflits actifs
+     (> 25 morts/an). Les saisies de navires, les cyberattaques,
+     les incidents en mer Rouge ou les provocations sous le seuil
+     ne sont pas comptabilisés.
+
+  3. Données maritimes absentes :
+     Le trafic de tankers en temps réel (MarineTraffic/Kpler) et les
+     taux de fret tankers (Clarksons) ne sont pas disponibles
+     gratuitement. Ils amélioreraient significativement la précision
+     du score militaire/logistique.
+
+  4. Scores entreprise basés sur des estimations :
+     Les scores de dépendance pétrole, d'exposition Ormuz et de
+     sensibilité sectorielle sont construits à partir d'une analyse
+     qualitative des rapports annuels et sectoriels, pas de données
+     financières directes vérifiables en temps réel.
+
+  HYPOTHÈSES DU MODÈLE
+  ─────────────────────
+  1. Pondérations fixes : Les poids (40/30/30 pour le score global,
+     50/30/20 pour les entreprises) sont constants. Ils peuvent être
+     ajustés dans config/parameters.yaml sans recodage.
+
+  2. Linéarité des scores : La normalisation est linéaire entre
+     les bornes. Des modèles non-linéaires (exponentiel, logistique)
+     pourraient mieux capturer les régimes de crise.
+
+  3. Scénarios discrets : Le modèle produit 3 scénarios distincts.
+     La réalité est continue — un score de 64 et un score de 66
+     peuvent déclencher des scénarios différents.
+
+  4. Absence de mémoire : Le modèle est "instantané" — il ne pondère
+     pas les événements passés au-delà des fenêtres temporelles
+     définies (7j, 30j, 90j). Un conflit qui dure 18 mois n'est pas
+     traité différemment d'un conflit qui débute.
+
+
+================================================================================
+  7. ÉVOLUTIONS POSSIBLES
+================================================================================
+
+  COURT TERME (1 mois)
+  ─────────────────────
+  - Intégration ACLED (inscription gratuite) pour améliorer le score
+    militaire avec données sub-seuil (saisies navires, attaques drones)
+  - Pages 2 (Indicateurs) et 3 (Scores) à finaliser
+  - Page 4 (Scénarios) avec simulation manuelle à coder
+
+  MOYEN TERME (3 mois)
+  ─────────────────────
+  - Analyse NLP des titres Reuters/AP via API (pour le score politique)
+  - Récupération automatique des nouvelles sanctions OFAC (webhook)
+  - Intégration des données IEA sur les flux pétroliers
+
+  LONG TERME (6 mois)
+  ─────────────────────
+  - Modèle de machine learning pour calibrer les probabilités scénario
+    (régression logistique sur historique 2011–2026)
+  - Alertes automatiques (email/SMS) si score global dépasse un seuil
+  - Données MarineTraffic (si budget disponible)
+  - Backtesting du modèle sur des crises historiques :
+    → Crise nucléaire iranienne 2012 (Brent à 128 $/b)
+    → Attaques tankers 2019 (Golfe d'Oman)
+    → Assassinat Soleimani janvier 2020
+
+
+================================================================================
+  FIN DE DOCUMENT
+  Analyseur de Risque Géopolitique Ormuz — v1.0 — Avril 2026
+================================================================================

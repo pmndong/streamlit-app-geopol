@@ -1,0 +1,73 @@
+# =====================================================================
+# PARAMÈTRES — APP RISQUE GÉOPOLITIQUE ORMUZ
+# =====================================================================
+
+data:
+  path_oil:       "Données/processed/market_data_oil.csv"
+  path_vix:       "Données/processed/market_data_vix.csv"
+  path_geo:       "Données/processed/geopolitical_events_middleeast.csv"
+  path_companies: "Données/reference/company_exposure_typologies.csv"
+  path_sanctions: "Données/raw/sanctions/ofac_iran_gulf_filtered.csv"
+
+# ------- Pondérations score global -------
+scoring:
+  weight_military:  0.40
+  weight_political: 0.30
+  weight_energy:    0.30
+
+  # Seuils normalisation score énergie
+  brent_ref:          70.0    # baseline "neutre" USD/baril
+  brent_max:         160.0    # niveau "crise extrême"
+  vix_ref:            20.0    # VIX neutre
+  vix_max:            80.0
+  brent_7d_ref:        0.05   # variation 7j neutre (±5%)
+  brent_7d_max:        0.25   # variation 7j max (±25%)
+
+  # Seuils normalisation score militaire (fenêtre 30 jours)
+  incident_ref:        2      # incidents/mois neutre
+  incident_max:       30      # incidents/mois max
+  deaths_ref:         10      # décès/mois neutre
+  deaths_max:        500      # décès/mois max
+
+  # Seuils normalisation score politique
+  sanctions_ref:       5      # nouvelles entités sanctionnées /30j neutre
+  sanctions_max:      80      # max
+
+# ------- Scénarios -------
+scenarios:
+  A:
+    name: "Désescalade rapide"
+    description: "Recul des tensions, reprise diplomatique, stabilisation."
+    score_max:    35
+    duration_min: 1
+    duration_max: 3
+    duration_unit: "mois"
+    color: "#2ECC71"
+  B:
+    name: "Conflit prolongé sous tension contrôlée"
+    description: "Incidents récurrents, prix pétrole élevé, sans rupture majeure."
+    score_min:    35
+    score_max:    65
+    duration_min: 3
+    duration_max: 12
+    duration_unit: "mois"
+    color: "#F39C12"
+  C:
+    name: "Escalade régionale durable"
+    description: "Perturbation logistique significative, tensions politiques majeures."
+    score_min:    65
+    duration_min: 12
+    duration_max: 36
+    duration_unit: "mois"
+    color: "#E74C3C"
+
+# ------- Score entreprise -------
+company_risk:
+  weight_oil_dependency:    0.50
+  weight_hormuz_exposure:   0.30
+  weight_sector_sensitivity: 0.20
+
+  thresholds:
+    critique: 0.75
+    eleve:    0.55
+    modere:   0.35
