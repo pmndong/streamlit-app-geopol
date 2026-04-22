@@ -1,7 +1,18 @@
-streamlit>=1.35.0
-pandas>=2.0.0
-plotly>=5.18.0
-pyyaml>=6.0
-xlrd>=2.0.1
-openpyxl>=3.1.0
-numpy>=1.26.0
+# ============================================================
+#  REQUIREMENTS — Analyseur de Risque Géopolitique Ormuz
+#  Python >= 3.10
+#  Installation : pip install -r requirements.txt
+# ============================================================
+
+# --- Interface & visualisation ---
+streamlit==1.55.0        # Framework web de l'application
+plotly==6.6.0            # Graphiques interactifs (jauges, bar charts, heatmaps)
+
+# --- Données & calcul ---
+pandas==2.3.3            # Manipulation des DataFrames (séries temporelles, agrégations)
+numpy==2.4.2             # Calculs numériques (normalisation, clamp, scoring)
+
+# --- Lecture fichiers ---
+pyyaml==6.0.3            # Lecture du fichier config/parameters.yaml
+xlrd==2.0.2              # Lecture des fichiers .xls EIA (Brent, WTI)
+openpyxl==3.1.5          # Lecture/écriture .xlsx (si export futur)
